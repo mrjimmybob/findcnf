@@ -9,4 +9,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">
     <StartArguments>C:\Users\mark\source\repos\findcnf3\ALY SLPA04</StartArguments>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|AnyCPU'">
+    <StartArguments>C:\Temp\Migration_tools\probarnf SNUB07</StartArguments>
+  </PropertyGroup>
 </Project>

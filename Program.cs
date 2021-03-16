@@ -5,14 +5,16 @@ using System.Linq;
 using System.Text;
 using EncryptorLibrary;
 
-namespace findcnf3
+namespace findcnf 
 {
     class Program
     {
-		static int versionMajor = 3;
-		static int versionMinor = 0;
-		static int versionRevision = 1;
-		static string strFind = "";
+		private static int versionMajor = 3;
+		private static int versionMinor = 3;
+		private static int versionRevision = 0;
+        private static string strFind = ""; 
+		private static string logFileName = "";
+		private static long foundCount = 0;
 
 		static bool fileContainsString(string filename, string strToFind)
 		{
@@ -46,39 +48,63 @@ namespace findcnf3
 			Console.ForegroundColor = ConsoleColor.White;
 		}
 
+		static void printTime(long elapsedMs)
+		{
+			string strElapsedMs;
+			 
+			if (elapsedMs > 1000)
+			{
+				strElapsedMs = Convert.ToString(elapsedMs / 1000) + " s";
+			}
+			else
+			{
+				strElapsedMs = Convert.ToString(elapsedMs) + " ms";
+			}
+			printInfo("Finished processing file in: ", strElapsedMs);
+		}
+
 		static void printError(string name, string error, string detail)
 		{
 			Console.ForegroundColor = ConsoleColor.Red;
-			Console.Write("" + error + ": ");
-			Console.ForegroundColor = ConsoleColor.Cyan;
+			Console.Write(error + ": ");
+			Console.ForegroundColor = ConsoleColor.DarkYellow;
 			Console.Write("\'" + name + "\' ");
 			Console.ForegroundColor = ConsoleColor.Red;
 			Console.WriteLine("(" + detail + ")");
 			Console.ForegroundColor = ConsoleColor.White;
 		}
 
-		static void printInfo(string title, string data)
+		static void printProgress(string title, string data)
 		{
-			Console.ForegroundColor = ConsoleColor.Cyan;
+			Console.ForegroundColor = ConsoleColor.Green;
 			Console.Write(title);
-			Console.ForegroundColor = ConsoleColor.Magenta;
+			Console.ForegroundColor = ConsoleColor.Cyan;
 			Console.WriteLine(data);
 			Console.ForegroundColor = ConsoleColor.White;
 		}
 
-		static bool isEncrypted(string line, string path, string strOld)
+		static void printInfo(string title, string data)
+		{
+			Console.ForegroundColor = ConsoleColor.Blue;
+			Console.Write(title);
+			Console.ForegroundColor = ConsoleColor.Yellow;
+			Console.WriteLine(data);
+			Console.ForegroundColor = ConsoleColor.White;
+		}
+
+		static bool isEncryptedandContains(string line, string path, string strOld)
         {
 			Encryptor enc = new Encryptor();
 			string cryptLine;
 			try
 			{
-				cryptLine = enc.Encrypt(line, true);
-				if (cryptLine.Contains("atalog") || cryptLine.Contains("atabase") || cryptLine.Contains("DSN"))
+				cryptLine = enc.Decrypt(line, true);
+				if (cryptLine.ToUpper().Contains(strFind.ToUpper()))
 				{
 					return true;
 				}
 			}
-			catch (Exception ex)
+			catch
 			{
 				return false;
 			}
@@ -86,7 +112,7 @@ namespace findcnf3
 		}
 
 
-		static bool fileHasEncriptedConnectionString(string path, string strOld)
+		static bool encriptedFileContainsString(string path, string strFind)
 		{
 			string substring = "";
 			try
@@ -106,8 +132,8 @@ namespace findcnf3
 			
 			int from = substring.IndexOf("connectionStrings") + "connectionStrings".Length + 1; // skip closing "
 			int to = substring.IndexOf("</connectionStrings");
-			int i1 = 0, i2 = 0, i3 = 0;
-			string line = "";
+			int i1, i2, i3;
+			string line;
 
 			try
 			{
@@ -130,12 +156,15 @@ namespace findcnf3
 						if (i3 < 0) break;
 						i3 += 2; // pass the last " bit
 						line = substring.Substring(i2, i3 - i2 - 2); // Minus string beginning and '"'
-						if (isEncrypted(line, path, strOld))
+						// line = substring.Substring(i2, i3 - i2 - 2); // Minus string beginning and '"'
+						
+						if (isEncryptedandContains(line, path, strFind))
                         {
 							return true;
                         }
 						if (i2 > i3) break;
-						substring = substring.Substring(i2 + (i3 - i2)); // get from after last '/>'
+						// substring = substring.Substring(i2 + (i3 - i2)); // get from after last '/>'
+						substring = substring.Substring(i3 - i2); // get from after last '"'
 					}
 				}
 			}
@@ -164,22 +193,25 @@ namespace findcnf3
 			if (file is null || file.Length <= 0 || isDirectory(file.FullName)) return;
 			if (!File.Exists(file.FullName)) return;
 			if (fileContainsString(file.FullName, strFind)) {
+				foundCount++;
 				writeToLog("Found: '" + strFind + "' in '" + file.FullName + "'");
-				printInfo("Found '" + strFind + "' in file: '", file.FullName);
+				printProgress("Found '" + strFind + "' in file: ", "'" + file.FullName + "'");
 			}
 			else
 			{
 				/*
 				// Maybe it is Little Endian!
 				if (UTF16FileContainsString(file.FullName, strFind)) {
+					foundCount++;
 					writeToLog("Found: '" + strFind + "' in '" + file.FullName + "'");
-					printInfo("Found '" + strFind + "' in file: '", file.FullName);
+					printInfo("Found '" + strFind + "' in file: '", file.FullName + "'");
 				} 
 				else
 				{*/
-				if (fileHasEncriptedConnectionString(file.FullName, strFind)) {
-					writeToLog("File: '" + file.FullName + "' has encrypted connectionsStrings!");
-					printInfo("Found encrypted connection string in file: '", file.FullName);
+				if (encriptedFileContainsString(file.FullName, strFind)) {
+					foundCount++;
+					writeToLog("Found '" + strFind + "' in encrypted file: '" + file.FullName + "'");
+					printProgress("Found '" + strFind + "' in encrypted file: ", "'" + file.FullName + "'");
 				}
 				/*}*/
 			}
@@ -194,7 +226,9 @@ namespace findcnf3
 				FileInfo[] files = di.GetFiles();
 				foreach (FileInfo file in files)
 				{
-					if (file.Extension.ToUpper().Equals(".CONFIG") || file.Extension.ToUpper().Equals(".UDL"))
+					if (file.Extension.ToUpper().Equals(".CONFIG") 
+						|| file.Extension.ToUpper().Equals(".UDL")
+						|| file.Extension.ToUpper().Equals(".BAT"))
 					{
 						// writeToLog("Processing file: " + file.FullName);
 						processFile(file);
@@ -222,17 +256,30 @@ namespace findcnf3
  
 		static void writeToLog(string logMessage)
 		{
-			string logFileName = "findcnf3.log";
-			using (StreamWriter logFile = File.AppendText(logFileName))
-			{
-				logFile.WriteLine(logMessage);
-				// Console.WriteLine(logMessage);
+			if (logFileName.Length <= 0)
+            {
+				logFileName = "findcnf_" + strFind + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmssffff") + ".log";
+
+				printInfo("Created log file: ", logFileName);
 			}
+			try
+			{
+				using (StreamWriter logFile = File.AppendText(logFileName))
+				{
+					logFile.WriteLine(logMessage);
+					// Console.WriteLine(logMessage);
+				}
+			}
+			catch (Exception ex)
+            {
+				printError(logFileName, "Error creating log file", ex.Message);
+            }
 		}
 
-		static void writeLogHeader()
+		static void writeLogHeader(string args)
 		{
 			writeToLog("Execution: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffff"));
+			writeToLog(args);
 		}
 
 		static void printUsageAndExit()
@@ -240,7 +287,7 @@ namespace findcnf3
 			Console.ForegroundColor = ConsoleColor.White;
 			Console.Write("Usage: ");
 			Console.ForegroundColor = ConsoleColor.Green;
-			Console.Write("findcnf3.exe");
+			Console.Write("findcnf.exe");
 			Console.ForegroundColor = ConsoleColor.White;
 			Console.Write(" <");
 			Console.ForegroundColor = ConsoleColor.DarkGray;
@@ -254,7 +301,7 @@ namespace findcnf3
 			Console.ForegroundColor = ConsoleColor.White;
 			Console.WriteLine(">");
 			Console.ForegroundColor = ConsoleColor.Cyan;
-			Console.WriteLine("As from <path>, find STR1 in files.");
+			Console.WriteLine("As from <path>, find STR1 in configuration (.config & .udl) files.");
 			Console.ForegroundColor = ConsoleColor.DarkYellow;
 			Console.Write("Third ");
 			Console.ForegroundColor = ConsoleColor.Yellow;
@@ -277,11 +324,23 @@ namespace findcnf3
 				string path = args[0];
 				strFind = args[1];
 
-				writeToLog("Searching directory '" + path + "' for '" + strFind + "'");
-				writeLogHeader();
+				printInfo("Execution: ", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffff"));
+				printInfo("Searching directory: ", "'" + path + "'");
+				printInfo("Looking for string: ", "'" + strFind + "'");
+
+				writeLogHeader("Searching directory '" + path + "' for '" + strFind + "'");
+
 				if (Directory.Exists(path))
 				{
+					var watch = System.Diagnostics.Stopwatch.StartNew();
+
 					EnumerateFiles(path);
+
+					printInfo("Found '" + strFind + "': ", foundCount.ToString() + " times.");
+					
+					watch.Stop();
+					var elapsedMs = watch.ElapsedMilliseconds;
+					printTime(elapsedMs);
 				}
 				else
 				{
