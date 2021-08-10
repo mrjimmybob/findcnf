@@ -340,7 +340,7 @@ namespace findcnf
 
 					printInfo("Found '" + strFind + "': ", foundCount.ToString() + " times.");
 
-					printInfo("Number of files searched: ", numSearched.ToString());
+					printInfo("Number of config files searched: ", numSearched.ToString());
 					watch.Stop();
 					var elapsedMs = watch.ElapsedMilliseconds;
 					printTime(elapsedMs);
