@@ -15,6 +15,7 @@ namespace findcnf
         private static string strFind = ""; 
 		private static string logFileName = "";
 		private static long foundCount = 0;
+		private static long numSearched = 0;
 
 		static bool fileContainsString(string filename, string strToFind)
 		{
@@ -192,6 +193,7 @@ namespace findcnf
 		{
 			if (file is null || file.Length <= 0 || isDirectory(file.FullName)) return;
 			if (!File.Exists(file.FullName)) return;
+			numSearched++;
 			if (fileContainsString(file.FullName, strFind)) {
 				foundCount++;
 				writeToLog("Found: '" + strFind + "' in '" + file.FullName + "'");
@@ -337,7 +339,8 @@ namespace findcnf
 					EnumerateFiles(path);
 
 					printInfo("Found '" + strFind + "': ", foundCount.ToString() + " times.");
-					
+
+					printInfo("Number of files searched: ", numSearched.ToString());
 					watch.Stop();
 					var elapsedMs = watch.ElapsedMilliseconds;
 					printTime(elapsedMs);
