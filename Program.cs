@@ -1,11 +1,12 @@
+using EncryptorLibrary;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security;
 using System.Text;
-using System.Xml.Linq;
-using EncryptorLibrary;
 using System.Threading;
+using System.Xml.Linq;
 
 namespace findcnf 
 {
@@ -21,10 +22,10 @@ namespace findcnf
         static string errorLogFilePath = @"findcnf_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + "_errorrs.log";
 
         static int progressLine;
-        static int foundLine;
-        static int statsLine;
+        static int workingLine = 0;
+        static int foundLine = 0;
+        static int statsLine = 0;
 
-        
         // static readonly char[] SpinnerChars = { '░', '▒', '▓', '▒' };
         // static readonly char[] SpinnerChars = { '.', 'o', 'O', 'o', '.' };
         // static readonly char[] SpinnerChars = { '.', 'o', 'O', '0', 'O', 'o' };
@@ -139,6 +140,19 @@ namespace findcnf
         }
 
 
+        static void SetupStatusLines()
+        {
+            // Print initial empty lines to reserve space
+            Console.WriteLine(); // Working line will be here
+            Console.WriteLine(); // Found line will be here
+            Console.WriteLine(); // Stats will be here later
+
+            // Set line positions
+            workingLine = Console.CursorTop - 3;
+            foundLine = Console.CursorTop - 2;
+            statsLine = Console.CursorTop - 1;
+        }
+
         static void RenderStatus(string workingState = null)
         {
             lock (consoleLock)
@@ -148,49 +162,43 @@ namespace findcnf
 
                 string foundText = lastFoundPath ?? "-";
 
-                int width = Math.Max(20, Console.WindowWidth - 1);
+                // Save current cursor position
+                int currentTop = Console.CursorTop;
+                int currentLeft = Console.CursorLeft;
 
-                // Build raw strings
-                string workingLabel = "Working: ";
-                string foundLabel = "Found: ";
-
-                string workingLine = workingLabel + workingState;
-                string foundLine = foundLabel + foundText;
-
-                if (workingLine.Length > width)
-                    workingLine = workingLine.Substring(0, width - 3) + "...";
-
-                if (foundLine.Length > width)
-                    foundLine = foundLine.Substring(0, width - 3) + "...";
-
-                Console.Write("\r");
-
-                // ----- Working line -----
+                // ----- Update Working line -----
+                Console.SetCursorPosition(0, workingLine);
                 Console.ForegroundColor = ConsoleColor.Green;
-                Console.Write(workingLabel);
-
+                Console.Write("Working: ");
                 Console.ForegroundColor = ConsoleColor.Cyan;
                 Console.Write(workingState);
+                // Clear the rest of the line
+                int written = 9 + workingState.Length; // "Working: " = 9
+                Console.Write(new string(' ', Math.Max(0, Console.WindowWidth - written - 1)));
 
-                Console.ForegroundColor = ConsoleColor.White;
-                Console.Write(new string(' ', Math.Max(0, width - workingLine.Length)));
-                Console.WriteLine();
-
-                // ----- Found line -----
+                // ----- Update Found line -----
+                Console.SetCursorPosition(0, foundLine);
                 Console.ForegroundColor = ConsoleColor.Green;
-                Console.Write(foundLabel);
+                Console.Write("Found: ");
                 Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.Write(foundText);
 
-                Console.ForegroundColor = ConsoleColor.White;
-                Console.Write(new string(' ', Math.Max(0, width - foundLine.Length)));
+                // Truncate found text if too long
+                int maxFoundLength = Console.WindowWidth - 8; // "Found: " = 7, plus some padding
+                string displayFoundText = foundText;
+                if (foundText.Length > maxFoundLength)
+                {
+                    displayFoundText = "..." + foundText.Substring(foundText.Length - maxFoundLength + 3);
+                }
 
-                // Move cursor back up to Working line
-                Console.Write("\r");
-                Console.Write("\x1b[1A");
+                Console.Write(displayFoundText);
+                // Clear the rest of the line
+                written = 7 + displayFoundText.Length; // "Found: " = 7
+                Console.Write(new string(' ', Math.Max(0, Console.WindowWidth - written - 1)));
+
+                // Restore cursor position
+                Console.SetCursorPosition(currentLeft, currentTop);
             }
         }
-
 
 
         static void StartSpinner()
@@ -217,16 +225,35 @@ namespace findcnf
 
             lock (consoleLock)
             {
-                // Final status text
-                string finalMessage = $"See log file {logFilePath} for results.";
+                // Clear the status lines and show final message
+                int currentTop = Console.CursorTop;
+                int currentLeft = Console.CursorLeft;
 
-                lastFoundPath = finalMessage;
+                // Clear working line
+                Console.SetCursorPosition(0, workingLine);
+                Console.Write(new string(' ', Console.WindowWidth - 1));
 
-                // Draw final state
-                RenderStatus("Done");
+                // Update with final message
+                Console.SetCursorPosition(0, workingLine);
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.Write("Working: ");
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.Write("Done");
 
-                // Move cursor below the status block
-                Console.WriteLine();
+                // Clear the rest of the found line
+                Console.SetCursorPosition(0, foundLine);
+                Console.Write(new string(' ', Console.WindowWidth - 1));
+
+                // Update found line with final summary
+                Console.SetCursorPosition(0, foundLine);
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.Write("Found: ");
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.Write($"see {logFilePath} for results");
+                Console.ForegroundColor = ConsoleColor.White;
+
+                // Restore cursor position to below the status area
+                Console.SetCursorPosition(0, statsLine + 1);
             }
 
             Console.CursorVisible = true;
@@ -489,6 +516,69 @@ namespace findcnf
         }
 
 
+        private static string NormalizeAndValidatePath(string path)
+        {
+            try
+            {
+                // Get full path to resolve relative paths and normalize separators
+                string fullPath = Path.GetFullPath(path);
+
+                // Check if path exists
+                if (!Directory.Exists(fullPath))
+                {
+                    throw new DirectoryNotFoundException($"Directory does not exist: '{fullPath}'");
+                }
+
+                // Check if it's actually a directory (not a file)
+                FileAttributes attr = File.GetAttributes(fullPath);
+                if ((attr & FileAttributes.Directory) != FileAttributes.Directory)
+                {
+                    throw new IOException($"Path is not a directory: '{fullPath}'");
+                }
+
+                // Check if directory is readable/accessible
+                try
+                {
+                    // Try to get directory info to test accessibility
+                    var directoryInfo = new DirectoryInfo(fullPath);
+                    var files = directoryInfo.GetFileSystemInfos("*");
+
+                    // Check for specific access rights (this will throw if no access)
+                    directoryInfo.GetAccessControl();
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    throw new UnauthorizedAccessException($"Access denied to directory: '{fullPath}'");
+                }
+                catch (SecurityException)
+                {
+                    throw new SecurityException($"Security exception accessing directory: '{fullPath}'");
+                }
+
+                // Ensure path ends with directory separator
+                if (!fullPath.EndsWith(Path.DirectorySeparatorChar.ToString()) &&
+                    !fullPath.EndsWith(Path.AltDirectorySeparatorChar.ToString()))
+                {
+                    fullPath = fullPath + Path.DirectorySeparatorChar;
+                }
+
+                return fullPath;
+            }
+            catch (ArgumentException ex)
+            {
+                throw new ArgumentException($"Invalid path format: '{path}'", ex);
+            }
+            catch (PathTooLongException)
+            {
+                throw new PathTooLongException($"Path is too long: '{path}'");
+            }
+            catch (NotSupportedException)
+            {
+                throw new NotSupportedException($"Path format is not supported: '{path}'");
+            }
+        }
+
+
         static void Main(string[] args)
         {
             string path = String.Empty;
@@ -521,46 +611,57 @@ namespace findcnf
                 }
             }
             if (String.Empty == path || String.Empty == searchpattern)
-			{
-				printUsageAndExit();
-			}
-			else 
-			{
-                Console.CursorVisible = false;
-                PrintInfo("Execution: ", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffff"));
-                PrintInfo("Searching directory: ", "'" + path + "'");
-                PrintInfo("Looking for string: ", "'" + searchpattern + "'");
-
-                RenderStatus(" ");
-                RenderStatus(" ");
-
-                StartSpinner();
-
-                if (Directory.Exists(path))
+            {
+                printUsageAndExit();
+            }
+            else
+            {
+                try
                 {
-                    var watch = System.Diagnostics.Stopwatch.StartNew();
+                    Console.CursorVisible = false;
+                    path = NormalizeAndValidatePath(path);
+                    PrintInfo("Execution: ", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffff"));
+                    PrintInfo("Searching directory: ", "'" + path + "'");
+                    PrintInfo("Looking for string: ", "'" + searchpattern + "'");
 
-                    EnumerateFiles(path, searchpattern);
+                    SetupStatusLines();
+                    StartSpinner();
 
+                    if (Directory.Exists(path))
+                    {
+                        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+                        EnumerateFiles(path, searchpattern);
+
+                        StopSpinner();
+
+                        // PrintInfo(Environment.NewLine + "Found '" + searchpattern + "': ", foundCount.ToString() + " " + "times.");
+                        PrintInfo("Number of config files searched: ", numSearched.ToString());
+                        watch.Stop();
+                        var elapsedMs = watch.ElapsedMilliseconds;
+                        printTime(elapsedMs);
+                        Console.CursorVisible = true;
+                    }
+                    else
+                    {
+                        PrintError(path, "Error opening directory", "Path does not exist");
+                        Console.CursorVisible = true;
+                        System.Environment.Exit(0);
+                    }
+                }
+                catch (Exception ex)
+                {
                     StopSpinner();
-
-                    PrintInfo(Environment.NewLine + "Found '" + searchpattern + "': ", foundCount.ToString() + " " +
-"times.                                                                                                                                      ");
-
-                    PrintInfo("Number of config files searched: ", numSearched.ToString());
-					watch.Stop();
-					var elapsedMs = watch.ElapsedMilliseconds;
-					printTime(elapsedMs);
+                    PrintError("Directory Error", $"Failed to access directory '{path}'", ex.Message);
+                    Console.CursorVisible = true;
+                    System.Environment.Exit(1);
+                }
+                finally
+                {
                     Console.CursorVisible = true;
                 }
-				else
-				{
-					PrintError(path, "Error opening directory", "Path does not exist");
-                    Console.CursorVisible = true;
-                    System.Environment.Exit(0);
-				}
-			}
 
-		}
+            }
+        }
     }
 }
