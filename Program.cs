@@ -20,18 +20,23 @@ namespace findcnf
         static string logFilePath = @"findcnf_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log";
         static string errorLogFilePath = @"findcnf_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + "_errorrs.log";
 
-        static readonly object consoleLock = new object();
-
         static int progressLine;
         static int foundLine;
         static int statsLine;
 
-        static volatile string lastFoundPath = "";
+        
+        // static readonly char[] SpinnerChars = { '░', '▒', '▓', '▒' };
+        // static readonly char[] SpinnerChars = { '.', 'o', 'O', 'o', '.' };
+        // static readonly char[] SpinnerChars = { '.', 'o', 'O', '0', 'O', 'o' };
+        static readonly char[] SpinnerChars = { '-', '\\', '|', '/'};
+        // static readonly char[] SpinnerChars = { '+', '*', '+', '-' };
+        static int spinnerIndex = 0;
+        static volatile bool running = false;
+
+        static readonly object consoleLock = new object();
+        static string lastFoundPath = "-";
 
 
-        static readonly char[] ProgressChars = new char[] { '.', 'o', 'O', '0', 'O', 'o' }; // { '⠟', '⠯', '⠷', '⠾', '⠽', '⠻' };
-        static volatile bool showProgress = false;
-        static Thread progressThread;
  
 
         static bool fileContainsString(string filename, string strToFind)
@@ -129,25 +134,104 @@ namespace findcnf
             string connector = encrypted ? "' in encrypted file '" : "' in '";
             WriteLog("P: Found: '" + searchpattern + connector + fileName + "'");
 
+            lastFoundPath = fileName;
+            RenderStatus();
+        }
+
+
+        static void RenderStatus(string workingState = null)
+        {
             lock (consoleLock)
             {
-                string text = $"Found: '{searchpattern}{connector}{fileName}'";
+                if (workingState == null)
+                    workingState = SpinnerChars[spinnerIndex % SpinnerChars.Length].ToString();
 
-                int maxWidth = Console.WindowWidth - 1;
+                string foundText = lastFoundPath ?? "-";
 
-                // Trim long lines so they NEVER wrap
-                if (text.Length > maxWidth)
-                {
-                    int keep = maxWidth - 3;
-                    text = text.Substring(0, keep) + "...";
-                }
+                int width = Math.Max(20, Console.WindowWidth - 1);
 
-                Console.SetCursorPosition(0, foundLine);
+                // Build raw strings
+                string workingLabel = "Working: ";
+                string foundLabel = "Found: ";
+
+                string workingLine = workingLabel + workingState;
+                string foundLine = foundLabel + foundText;
+
+                if (workingLine.Length > width)
+                    workingLine = workingLine.Substring(0, width - 3) + "...";
+
+                if (foundLine.Length > width)
+                    foundLine = foundLine.Substring(0, width - 3) + "...";
+
+                Console.Write("\r");
+
+                // ----- Working line -----
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.Write(workingLabel);
+
                 Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.Write(text.PadRight(maxWidth));
+                Console.Write(workingState);
+
                 Console.ForegroundColor = ConsoleColor.White;
+                Console.Write(new string(' ', Math.Max(0, width - workingLine.Length)));
+                Console.WriteLine();
+
+                // ----- Found line -----
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.Write(foundLabel);
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.Write(foundText);
+
+                Console.ForegroundColor = ConsoleColor.White;
+                Console.Write(new string(' ', Math.Max(0, width - foundLine.Length)));
+
+                // Move cursor back up to Working line
+                Console.Write("\r");
+                Console.Write("\x1b[1A");
             }
         }
+
+
+
+        static void StartSpinner()
+        {
+            running = true;
+            Thread t = new Thread(() =>
+            {
+                while (running)
+                {
+                    spinnerIndex++;
+                    RenderStatus();
+                    Thread.Sleep(150);
+                }
+            });
+
+            t.IsBackground = true;
+            t.Start();
+        }
+
+
+        static void StopSpinner()
+        {
+            running = false;
+
+            lock (consoleLock)
+            {
+                // Final status text
+                string finalMessage = $"See log file {logFilePath} for results.";
+
+                lastFoundPath = finalMessage;
+
+                // Draw final state
+                RenderStatus("Done");
+
+                // Move cursor below the status block
+                Console.WriteLine();
+            }
+
+            Console.CursorVisible = true;
+        }
+
 
 
         static void PrintInfo(string str1, string str2)
@@ -279,7 +363,8 @@ namespace findcnf
 			if (file is null || file.Length <= 0 || isDirectory(file.FullName)) return;
 			if (!File.Exists(file.FullName)) return;
 			numSearched++;
-			if (fileContainsString(file.FullName, searchpattern)) {
+            RenderStatus();
+            if (fileContainsString(file.FullName, searchpattern)) {
 				foundCount++;
 				PrintProgress(searchpattern, file.FullName);
 			}
@@ -404,73 +489,6 @@ namespace findcnf
         }
 
 
-        static void StartProgressIndicator()
-        {
-            Console.CursorVisible = false;
-            // Reserve two lines: one for progress, one for last found
-            progressLine = Console.CursorTop;
-            Console.WriteLine(); // Progress line
-            foundLine = Console.CursorTop;
-            Console.WriteLine(); // Found line
-
-            showProgress = true;
-            progressThread = new Thread(() =>
-            {
-                int idx = 0;
-                while (showProgress)
-                {
-                    lock (consoleLock)
-                    {
-                        Console.SetCursorPosition(0, progressLine);
-                        Console.ForegroundColor = ConsoleColor.Green;
-                        Console.Write("Working: ");
-                        Console.ForegroundColor = ConsoleColor.Yellow;
-                        Console.Write(ProgressChars[idx % ProgressChars.Length]);
-                        Console.ForegroundColor = ConsoleColor.White;
-
-                        int len = "Working: ".Length + 1;
-                        Console.Write(new string(' ', Math.Max(0, Console.WindowWidth - len)));
-                    }
-
-                    idx++;
-                    Thread.Sleep(150);
-                }
-                //// Clear progress indicator after stopping
-                //Console.SetCursorPosition(0, progressLine);
-                //Console.Write(new string(' ', Console.WindowWidth));
-            });
-            progressThread.IsBackground = true;
-            progressThread.Start();
-        }
-
-
-        static void StopProgressIndicator()
-        {
-            showProgress = false;
-            if (progressThread != null && progressThread.IsAlive)
-                progressThread.Join();
-
-            Console.CursorVisible = true;
-
-            lock (consoleLock)
-            {
-                // Show final "Done" state instead of clearing
-                Console.SetCursorPosition(0, progressLine);
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.Write("Working: ");
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.Write("Done");
-                Console.ForegroundColor = ConsoleColor.White;
-
-                int len = "Working: Done".Length;
-                Console.Write(new string(' ', Math.Max(0, Console.WindowWidth - len)));
-
-                // Leave the Found line as-is (last found or empty)
-            }
-        }
-
-
-
         static void Main(string[] args)
         {
             string path = String.Empty;
@@ -508,13 +526,15 @@ namespace findcnf
 			}
 			else 
 			{
-				PrintInfo("Execution: ", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffff"));
+                Console.CursorVisible = false;
+                PrintInfo("Execution: ", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffff"));
                 PrintInfo("Searching directory: ", "'" + path + "'");
                 PrintInfo("Looking for string: ", "'" + searchpattern + "'");
 
-                Console.WriteLine();
-                
-                StartProgressIndicator();
+                RenderStatus(" ");
+                RenderStatus(" ");
+
+                StartSpinner();
 
                 if (Directory.Exists(path))
                 {
@@ -522,7 +542,7 @@ namespace findcnf
 
                     EnumerateFiles(path, searchpattern);
 
-                    StopProgressIndicator();
+                    StopSpinner();
 
                     PrintInfo(Environment.NewLine + "Found '" + searchpattern + "': ", foundCount.ToString() + " " +
 "times.                                                                                                                                      ");
@@ -531,11 +551,13 @@ namespace findcnf
 					watch.Stop();
 					var elapsedMs = watch.ElapsedMilliseconds;
 					printTime(elapsedMs);
-				}
+                    Console.CursorVisible = true;
+                }
 				else
 				{
 					PrintError(path, "Error opening directory", "Path does not exist");
-					System.Environment.Exit(0);
+                    Console.CursorVisible = true;
+                    System.Environment.Exit(0);
 				}
 			}
 
