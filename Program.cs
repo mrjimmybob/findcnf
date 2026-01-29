@@ -5,19 +5,34 @@ using System.Linq;
 using System.Text;
 using System.Xml.Linq;
 using EncryptorLibrary;
- 
+using System.Threading;
+
 namespace findcnf 
 {
     class Program
     {
 		private static int versionMajor = 4;
-		private static int versionMinor = 0;
+		private static int versionMinor = 2;
 		private static int versionRevision = 0;
 		private static long foundCount = 0;
 		private static long numSearched = 0;
 
-        static string logFilePath = @"findcnf_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".txt";
+        static string logFilePath = @"findcnf_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log";
+        static string errorLogFilePath = @"findcnf_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + "_errorrs.log";
 
+        static readonly object consoleLock = new object();
+
+        static int progressLine;
+        static int foundLine;
+        static int statsLine;
+
+        static volatile string lastFoundPath = "";
+
+
+        static readonly char[] ProgressChars = new char[] { '.', 'o', 'O', '0', 'O', 'o' }; // { '⠟', '⠯', '⠷', '⠾', '⠽', '⠻' };
+        static volatile bool showProgress = false;
+        static Thread progressThread;
+ 
 
         static bool fileContainsString(string filename, string strToFind)
 		{
@@ -30,6 +45,7 @@ namespace findcnf
 			return false;
 		}
 	 
+
 		static bool UTF16FileContainsString(string filename, string strToFind)
 		{
 			return false;
@@ -91,35 +107,48 @@ namespace findcnf
             PrintInfo("Finished processing file in: ", strElapsedMs);
 		}
 
+
         static void PrintError(string name, string error, string detail)
         {
-            WriteLog("E: " + error + ": " + "\'" + name + "\' " + "(" + detail + ")");
-
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.Write(error + ": ");
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.Write("\'" + name + "\' ");
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine("(" + detail + ")");
-            Console.ForegroundColor = ConsoleColor.White;
+            try
+            {
+                using (StreamWriter writer = File.AppendText(errorLogFilePath))
+                {
+                    writer.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - E: {error}: '{name}' ({detail})");
+                }
+            }
+            catch
+            {
+                // If error log fails, fallback to console only
+            }
         }
 
-        static void PrintProgress(string searchpattern, string fileName)
+
+        static void PrintProgress(string searchpattern, string fileName, bool encrypted = false)
         {
-            WriteLog("P: " + "Found: '"  + searchpattern + "' in '" + fileName + "'");
-			 
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.Write("Found: '");
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.Write(searchpattern);
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.Write("' in '");
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.Write(fileName);
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine("'");
-            Console.ForegroundColor = ConsoleColor.White;
+            string connector = encrypted ? "' in encrypted file '" : "' in '";
+            WriteLog("P: Found: '" + searchpattern + connector + fileName + "'");
+
+            lock (consoleLock)
+            {
+                string text = $"Found: '{searchpattern}{connector}{fileName}'";
+
+                int maxWidth = Console.WindowWidth - 1;
+
+                // Trim long lines so they NEVER wrap
+                if (text.Length > maxWidth)
+                {
+                    int keep = maxWidth - 3;
+                    text = text.Substring(0, keep) + "...";
+                }
+
+                Console.SetCursorPosition(0, foundLine);
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.Write(text.PadRight(maxWidth));
+                Console.ForegroundColor = ConsoleColor.White;
+            }
         }
+
 
         static void PrintInfo(string str1, string str2)
         {
@@ -133,6 +162,7 @@ namespace findcnf
             Console.ForegroundColor = ConsoleColor.White;
         }
 
+
         static void PrintWarning(string str1, string str2)
         {
             WriteLog("W: " + str1 + " " + str2);
@@ -145,8 +175,9 @@ namespace findcnf
             Console.ForegroundColor = ConsoleColor.White;
         }
 
+
         static bool isEncryptedandContains(string line, string path, string strOld)
-        {
+		{
 			Encryptor enc = new Encryptor();
 			string cryptLine;
 			try
@@ -229,7 +260,8 @@ namespace findcnf
 			return false;
 		}
 
-		static bool isDirectory(string path)
+		
+        static bool isDirectory(string path)
         {
 			// get the file attributes for file or directory
 			FileAttributes attr = File.GetAttributes(path);
@@ -241,7 +273,8 @@ namespace findcnf
 				return false;
 		}
 
-		static void processFile(FileInfo file, string searchpattern)
+		
+        static void processFile(FileInfo file, string searchpattern)
 		{
 			if (file is null || file.Length <= 0 || isDirectory(file.FullName)) return;
 			if (!File.Exists(file.FullName)) return;
@@ -263,13 +296,14 @@ namespace findcnf
 				{*/
 				if (encriptedFileContainsString(file.FullName, searchpattern)) {
 					foundCount++;
-					PrintProgress("Found '" + searchpattern + "' in encrypted file: ", "'" + file.FullName + "'");
+					PrintProgress(searchpattern, file.FullName, true);
 				}
 				/*}*/
 			}
 		}
 
-		internal static void EnumerateFiles(string sFullPath, string searchpattern)
+		
+        internal static void EnumerateFiles(string sFullPath, string searchpattern)
 		{
 			DirectoryInfo di = new DirectoryInfo(sFullPath);
 			
@@ -298,15 +332,21 @@ namespace findcnf
 				DirectoryInfo[] dirs = di.GetDirectories();
 				if (dirs == null || dirs.Length < 1)
 					return;
-				foreach (DirectoryInfo dir in dirs)
-					EnumerateFiles(dir.FullName, searchpattern);
-			}
+                foreach (DirectoryInfo dir in dirs)
+                {
+                    if ((dir.Attributes & FileAttributes.ReparsePoint) != 0)
+                        continue; // skip symlinks/junctions
+
+                    EnumerateFiles(dir.FullName, searchpattern);
+                }
+            }
 			catch (Exception ex)
 			{
                 PrintError(sFullPath,  "Error processing directory information", ex.Message);
 			}
 		}
 
+        
         static void printUsageAndExit()
         {
             Console.ForegroundColor = ConsoleColor.Cyan;
@@ -358,12 +398,80 @@ namespace findcnf
             Console.ForegroundColor = ConsoleColor.Yellow;
             Console.Write("3");
             Console.ForegroundColor = ConsoleColor.DarkYellow;
-            Console.WriteLine("ye Software Inc. (\u00A9) 2024");
+            Console.WriteLine("ye Software Inc. (\u00A9) 2026");	
             Console.ForegroundColor = ConsoleColor.White;
             Console.Write("Version: {0}.{1}.{2}. ", versionMajor, versionMinor, versionRevision);
         }
-  
-		static void Main(string[] args)
+
+
+        static void StartProgressIndicator()
+        {
+            Console.CursorVisible = false;
+            // Reserve two lines: one for progress, one for last found
+            progressLine = Console.CursorTop;
+            Console.WriteLine(); // Progress line
+            foundLine = Console.CursorTop;
+            Console.WriteLine(); // Found line
+
+            showProgress = true;
+            progressThread = new Thread(() =>
+            {
+                int idx = 0;
+                while (showProgress)
+                {
+                    lock (consoleLock)
+                    {
+                        Console.SetCursorPosition(0, progressLine);
+                        Console.ForegroundColor = ConsoleColor.Green;
+                        Console.Write("Working: ");
+                        Console.ForegroundColor = ConsoleColor.Yellow;
+                        Console.Write(ProgressChars[idx % ProgressChars.Length]);
+                        Console.ForegroundColor = ConsoleColor.White;
+
+                        int len = "Working: ".Length + 1;
+                        Console.Write(new string(' ', Math.Max(0, Console.WindowWidth - len)));
+                    }
+
+                    idx++;
+                    Thread.Sleep(150);
+                }
+                //// Clear progress indicator after stopping
+                //Console.SetCursorPosition(0, progressLine);
+                //Console.Write(new string(' ', Console.WindowWidth));
+            });
+            progressThread.IsBackground = true;
+            progressThread.Start();
+        }
+
+
+        static void StopProgressIndicator()
+        {
+            showProgress = false;
+            if (progressThread != null && progressThread.IsAlive)
+                progressThread.Join();
+
+            Console.CursorVisible = true;
+
+            lock (consoleLock)
+            {
+                // Show final "Done" state instead of clearing
+                Console.SetCursorPosition(0, progressLine);
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.Write("Working: ");
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.Write("Done");
+                Console.ForegroundColor = ConsoleColor.White;
+
+                int len = "Working: Done".Length;
+                Console.Write(new string(' ', Math.Max(0, Console.WindowWidth - len)));
+
+                // Leave the Found line as-is (last found or empty)
+            }
+        }
+
+
+
+        static void Main(string[] args)
         {
             string path = String.Empty;
             string searchpattern = String.Empty;
@@ -404,15 +512,22 @@ namespace findcnf
                 PrintInfo("Searching directory: ", "'" + path + "'");
                 PrintInfo("Looking for string: ", "'" + searchpattern + "'");
 
-				if (Directory.Exists(path))
-				{
-					var watch = System.Diagnostics.Stopwatch.StartNew();
+                Console.WriteLine();
+                
+                StartProgressIndicator();
 
-					EnumerateFiles(path, searchpattern);
+                if (Directory.Exists(path))
+                {
+                    var watch = System.Diagnostics.Stopwatch.StartNew();
 
-                    PrintInfo("Found '" + searchpattern + "': ", foundCount.ToString() + " times.");
+                    EnumerateFiles(path, searchpattern);
 
-					PrintInfo("Number of config files searched: ", numSearched.ToString());
+                    StopProgressIndicator();
+
+                    PrintInfo(Environment.NewLine + "Found '" + searchpattern + "': ", foundCount.ToString() + " " +
+"times.                                                                                                                                      ");
+
+                    PrintInfo("Number of config files searched: ", numSearched.ToString());
 					watch.Stop();
 					var elapsedMs = watch.ElapsedMilliseconds;
 					printTime(elapsedMs);
