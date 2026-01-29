@@ -3,21 +3,23 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Xml.Linq;
 using EncryptorLibrary;
  
 namespace findcnf 
 {
     class Program
     {
-		private static int versionMajor = 3;
-		private static int versionMinor = 3;
+		private static int versionMajor = 4;
+		private static int versionMinor = 0;
 		private static int versionRevision = 0;
-        private static string strFind = ""; 
-		private static string logFileName = "";
 		private static long foundCount = 0;
 		private static long numSearched = 0;
 
-		static bool fileContainsString(string filename, string strToFind)
+        static string logFilePath = @"findcnf_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".txt";
+
+
+        static bool fileContainsString(string filename, string strToFind)
 		{
 			string contents = System.IO.File.ReadAllText(filename);
 			if (contents.ToUpper().Contains(strToFind.ToUpper())
@@ -38,6 +40,8 @@ namespace findcnf
 			}
 			return false;
 		}
+
+
 		static void debug(string msg)
 		{
 			Console.ForegroundColor = ConsoleColor.Red;
@@ -49,6 +53,29 @@ namespace findcnf
 			Console.ForegroundColor = ConsoleColor.White;
 		}
 
+
+        public static void WriteLog(string logMessage)
+        {
+            try
+            {
+                using (StreamWriter writer = File.AppendText(logFilePath))
+                {
+                    writer.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - {logMessage}");
+                }
+            }
+            catch
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.Write("ERROR: ");
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.Write("\'WriteLog\' ");
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("(Error creating or writing to Log file)");
+                Console.ForegroundColor = ConsoleColor.White;
+            }
+        }
+
+        
 		static void printTime(long elapsedMs)
 		{
 			string strElapsedMs;
@@ -61,46 +88,71 @@ namespace findcnf
 			{
 				strElapsedMs = Convert.ToString(elapsedMs) + " ms";
 			}
-			printInfo("Finished processing file in: ", strElapsedMs);
+            PrintInfo("Finished processing file in: ", strElapsedMs);
 		}
 
-		static void printError(string name, string error, string detail)
-		{
-			Console.ForegroundColor = ConsoleColor.Red;
-			Console.Write(error + ": ");
-			Console.ForegroundColor = ConsoleColor.DarkYellow;
-			Console.Write("\'" + name + "\' ");
-			Console.ForegroundColor = ConsoleColor.Red;
-			Console.WriteLine("(" + detail + ")");
-			Console.ForegroundColor = ConsoleColor.White;
-		}
+        static void PrintError(string name, string error, string detail)
+        {
+            WriteLog("E: " + error + ": " + "\'" + name + "\' " + "(" + detail + ")");
 
-		static void printProgress(string title, string data)
-		{
-			Console.ForegroundColor = ConsoleColor.Green;
-			Console.Write(title);
-			Console.ForegroundColor = ConsoleColor.Cyan;
-			Console.WriteLine(data);
-			Console.ForegroundColor = ConsoleColor.White;
-		}
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.Write(error + ": ");
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.Write("\'" + name + "\' ");
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine("(" + detail + ")");
+            Console.ForegroundColor = ConsoleColor.White;
+        }
 
-		static void printInfo(string title, string data)
-		{
-			Console.ForegroundColor = ConsoleColor.Blue;
-			Console.Write(title);
-			Console.ForegroundColor = ConsoleColor.Yellow;
-			Console.WriteLine(data);
-			Console.ForegroundColor = ConsoleColor.White;
-		}
+        static void PrintProgress(string searchpattern, string fileName)
+        {
+            WriteLog("P: " + "Found: '"  + searchpattern + "' in '" + fileName + "'");
+			 
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.Write("Found: '");
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.Write(searchpattern);
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.Write("' in '");
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.Write(fileName);
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine("'");
+            Console.ForegroundColor = ConsoleColor.White;
+        }
 
-		static bool isEncryptedandContains(string line, string path, string strOld)
+        static void PrintInfo(string str1, string str2)
+        {
+            WriteLog("I: " + str1 + " " + str2);
+
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.Write(str1);
+            Console.Write(" ");
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine(str2);
+            Console.ForegroundColor = ConsoleColor.White;
+        }
+
+        static void PrintWarning(string str1, string str2)
+        {
+            WriteLog("W: " + str1 + " " + str2);
+
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.Write(str1);
+            Console.Write(" ");
+            Console.ForegroundColor = ConsoleColor.DarkYellow;
+            Console.WriteLine(str2);
+            Console.ForegroundColor = ConsoleColor.White;
+        }
+
+        static bool isEncryptedandContains(string line, string path, string strOld)
         {
 			Encryptor enc = new Encryptor();
 			string cryptLine;
 			try
 			{
 				cryptLine = enc.Decrypt(line, true);
-				if (cryptLine.ToUpper().Contains(strFind.ToUpper()))
+				if (cryptLine.ToUpper().Contains(strOld.ToUpper()))
 				{
 					return true;
 				}
@@ -121,7 +173,7 @@ namespace findcnf
 				substring = System.IO.File.ReadAllText(path);
 			}
 			catch (Exception ex) {
-				printError(path, "Error reading file", ex.Message);
+				PrintError(path, "Error reading file", ex.Message);
 				return false;
 			}
 			
@@ -171,7 +223,7 @@ namespace findcnf
 			}
 			catch (Exception ex)
             {
-				printError(path, "Error searching file for encrypted data", ex.Message);
+				PrintError(path, "Error searching file for encrypted data", ex.Message);
 				return false;
 			}
 			return false;
@@ -189,15 +241,14 @@ namespace findcnf
 				return false;
 		}
 
-		static void processFile(FileInfo file)
+		static void processFile(FileInfo file, string searchpattern)
 		{
 			if (file is null || file.Length <= 0 || isDirectory(file.FullName)) return;
 			if (!File.Exists(file.FullName)) return;
 			numSearched++;
-			if (fileContainsString(file.FullName, strFind)) {
+			if (fileContainsString(file.FullName, searchpattern)) {
 				foundCount++;
-				writeToLog("Found: '" + strFind + "' in '" + file.FullName + "'");
-				printProgress("Found '" + strFind + "' in file: ", "'" + file.FullName + "'");
+				PrintProgress(searchpattern, file.FullName);
 			}
 			else
 			{
@@ -210,16 +261,15 @@ namespace findcnf
 				} 
 				else
 				{*/
-				if (encriptedFileContainsString(file.FullName, strFind)) {
+				if (encriptedFileContainsString(file.FullName, searchpattern)) {
 					foundCount++;
-					writeToLog("Found '" + strFind + "' in encrypted file: '" + file.FullName + "'");
-					printProgress("Found '" + strFind + "' in encrypted file: ", "'" + file.FullName + "'");
+					PrintProgress("Found '" + searchpattern + "' in encrypted file: ", "'" + file.FullName + "'");
 				}
 				/*}*/
 			}
 		}
 
-		internal static void EnumerateFiles(string sFullPath)
+		internal static void EnumerateFiles(string sFullPath, string searchpattern)
 		{
 			DirectoryInfo di = new DirectoryInfo(sFullPath);
 			
@@ -229,17 +279,18 @@ namespace findcnf
 				foreach (FileInfo file in files)
 				{
 					if (file.Extension.ToUpper().Equals(".CONFIG") 
-						|| file.Extension.ToUpper().Equals(".UDL")
+						|| file.Extension.ToUpper().Equals(".JS")
+                        || file.Extension.ToUpper().Equals(".UDL")
 						|| file.Extension.ToUpper().Equals(".BAT"))
 					{
 						// writeToLog("Processing file: " + file.FullName);
-						processFile(file);
+						processFile(file, searchpattern);
 					}
 				}
 			}
 			catch (Exception ex)
 			{
-				printError(sFullPath, "Error processing file information", ex.Message);
+				PrintError(sFullPath, "Error processing file information", ex.Message);
 			}
 			try
 				{
@@ -248,106 +299,127 @@ namespace findcnf
 				if (dirs == null || dirs.Length < 1)
 					return;
 				foreach (DirectoryInfo dir in dirs)
-					EnumerateFiles(dir.FullName);
+					EnumerateFiles(dir.FullName, searchpattern);
 			}
 			catch (Exception ex)
 			{
-				printError(sFullPath,  "Error processing directory information", ex.Message);
+                PrintError(sFullPath,  "Error processing directory information", ex.Message);
 			}
 		}
- 
-		static void writeToLog(string logMessage)
-		{
-			if (logFileName.Length <= 0)
-            {
-				logFileName = "findcnf_" + strFind + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmssffff") + ".log";
 
-				printInfo("Created log file: ", logFileName);
-			}
-			try
-			{
-				using (StreamWriter logFile = File.AppendText(logFileName))
-				{
-					logFile.WriteLine(logMessage);
-					// Console.WriteLine(logMessage);
-				}
-			}
-			catch (Exception ex)
-            {
-				printError(logFileName, "Error creating log file", ex.Message);
-            }
-		}
+        static void printUsageAndExit()
+        {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"Find a string pattern in a configuration file.");
+            Console.WriteLine();
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine($"Usage: ");
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.Write("\tfindcnf");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write(" -p ");
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.Write("path");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write(" -s ");
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.Write("searchpattern");
+            Console.WriteLine();
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.Write("\tfindcnf");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write(" --path ");
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.Write("path");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write(" --searchpattern ");
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.Write("searchpattern");
+            Console.WriteLine();
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.Write("\tfindcnf");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write(" -h");
+            Console.WriteLine();
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.Write("\tfindcnf");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write(" --help");
+            Console.WriteLine();
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine("Options:");
+            Console.WriteLine("\t-p | --path\t\tPath as from when to search.");
+            Console.WriteLine("\t-s | --searchpattern\tSearch pattern to  look for.");
+            Console.WriteLine();
+            Console.WriteLine("\t-h | --help\t\tShow this help message.");
 
-		static void writeLogHeader(string args)
-		{
-			writeToLog("Execution: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffff"));
-			writeToLog(args);
-		}
-
-		static void printUsageAndExit()
-		{
-			Console.ForegroundColor = ConsoleColor.White;
-			Console.Write("Usage: ");
-			Console.ForegroundColor = ConsoleColor.Green;
-			Console.Write("findcnf.exe");
-			Console.ForegroundColor = ConsoleColor.White;
-			Console.Write(" <");
-			Console.ForegroundColor = ConsoleColor.DarkGray;
-			Console.Write("path");
-			Console.ForegroundColor = ConsoleColor.White;
-			Console.Write(">");
-			Console.ForegroundColor = ConsoleColor.White;
-			Console.Write(" <");
-			Console.ForegroundColor = ConsoleColor.DarkGray;
-			Console.Write("STR1");
-			Console.ForegroundColor = ConsoleColor.White;
-			Console.WriteLine(">");
-			Console.ForegroundColor = ConsoleColor.Cyan;
-			Console.WriteLine("As from <path>, find STR1 in configuration (.config & .udl) files.");
-			Console.ForegroundColor = ConsoleColor.DarkYellow;
-			Console.Write("Third ");
-			Console.ForegroundColor = ConsoleColor.Yellow;
-			Console.Write("3");
-			Console.ForegroundColor = ConsoleColor.DarkYellow;
-			Console.WriteLine("ye Software Inc. (c) 2021");
-			Console.ForegroundColor = ConsoleColor.White;
-			Console.Write("Version: {0}.{1}.{2}. ", versionMajor, versionMinor, versionRevision);
-			System.Environment.Exit(0);
-		}
-
+            Console.ForegroundColor = ConsoleColor.DarkYellow;
+            Console.Write("Third ");
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.Write("3");
+            Console.ForegroundColor = ConsoleColor.DarkYellow;
+            Console.WriteLine("ye Software Inc. (\u00A9) 2024");
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.Write("Version: {0}.{1}.{2}. ", versionMajor, versionMinor, versionRevision);
+        }
+  
 		static void Main(string[] args)
         {
-			if (args.Length != 2)
+            string path = String.Empty;
+            string searchpattern = String.Empty;
+
+            for (int i = 0; i < args.Length; i++)
+            {
+                switch (args[i])
+                {
+                    case "-p":
+                    case "--path":
+                        if (i + 1 < args.Length)
+                            path = args[++i];
+                        else
+                            PrintError("Fatal Error", "Missing value for -s | --server option.", "Please read usage.");
+                        break;
+
+                    case "-s":
+                    case "--searchpattern":
+                        if (i + 1 < args.Length)
+                            searchpattern = args[++i];
+                        else
+                            PrintError("Fatal Error", "Missing value for -d | --database option.", "Please read usage.");
+                        break;
+
+                    case "-h":
+                    case "--help":
+                        printUsageAndExit();
+                        break;
+                }
+            }
+            if (String.Empty == path || String.Empty == searchpattern)
 			{
 				printUsageAndExit();
 			}
 			else 
 			{
-				string path = args[0];
-				strFind = args[1];
-
-				printInfo("Execution: ", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffff"));
-				printInfo("Searching directory: ", "'" + path + "'");
-				printInfo("Looking for string: ", "'" + strFind + "'");
-
-				writeLogHeader("Searching directory '" + path + "' for '" + strFind + "'");
+				PrintInfo("Execution: ", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.ffff"));
+                PrintInfo("Searching directory: ", "'" + path + "'");
+                PrintInfo("Looking for string: ", "'" + searchpattern + "'");
 
 				if (Directory.Exists(path))
 				{
 					var watch = System.Diagnostics.Stopwatch.StartNew();
 
-					EnumerateFiles(path);
+					EnumerateFiles(path, searchpattern);
 
-					printInfo("Found '" + strFind + "': ", foundCount.ToString() + " times.");
+                    PrintInfo("Found '" + searchpattern + "': ", foundCount.ToString() + " times.");
 
-					printInfo("Number of config files searched: ", numSearched.ToString());
+					PrintInfo("Number of config files searched: ", numSearched.ToString());
 					watch.Stop();
 					var elapsedMs = watch.ElapsedMilliseconds;
 					printTime(elapsedMs);
 				}
 				else
 				{
-					printError(path, "Error opening directory", "Path does not exist");
+					PrintError(path, "Error opening directory", "Path does not exist");
 					System.Environment.Exit(0);
 				}
 			}
