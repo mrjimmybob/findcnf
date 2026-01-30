@@ -13,7 +13,7 @@ namespace findcnf
     class Program
     {
 		private static int versionMajor = 4;
-		private static int versionMinor = 2;
+		private static int versionMinor = 4;
 		private static int versionRevision = 0;
 		private static long foundCount = 0;
 		private static long numSearched = 0;
@@ -36,18 +36,23 @@ namespace findcnf
 
         static readonly object consoleLock = new object();
         static string lastFoundPath = "-";
+                 
 
-
- 
-
-        static bool fileContainsString(string filename, string strToFind)
+        static bool fileContainsString(string filename, string strToFind, bool caseSensitive = false)
 		{
 			string contents = System.IO.File.ReadAllText(filename);
-			if (contents.ToUpper().Contains(strToFind.ToUpper())
-				)
-			{
-				return true;
-			}
+            if (caseSensitive) {
+                if (contents.Contains(strToFind))
+                {
+                    return true;
+                }
+            } else {
+                if (contents.ToUpper().Contains(strToFind.ToUpper()))
+                {
+                    return true;
+                }
+            }
+			
 			return false;
 		}
 	 
@@ -287,17 +292,27 @@ namespace findcnf
         }
 
 
-        static bool isEncryptedandContains(string line, string path, string strOld)
+        static bool isEncryptedandContains(string line, string path, string strOld, bool caseSensitive = false)
 		{
 			Encryptor enc = new Encryptor();
 			string cryptLine;
 			try
 			{
 				cryptLine = enc.Decrypt(line, true);
-				if (cryptLine.ToUpper().Contains(strOld.ToUpper()))
-				{
-					return true;
-				}
+                if (caseSensitive) {
+                    // case sensitive
+                    if (cryptLine.Contains(strOld))
+                    {
+                        return true;
+                    }
+                } else {
+                    // case insensitive
+                    if (cryptLine.ToUpper().Contains(strOld.ToUpper()))
+                    {
+                        return true;
+                    }
+                }
+				
 			}
 			catch
 			{
@@ -307,7 +322,7 @@ namespace findcnf
 		}
 
 
-		static bool encriptedFileContainsString(string path, string strFind)
+		static bool encriptedFileContainsString(string path, string strFind, bool caseSensitive = false)
 		{
 			string substring = "";
 			try
@@ -353,7 +368,7 @@ namespace findcnf
 						line = substring.Substring(i2, i3 - i2 - 2); // Minus string beginning and '"'
 						// line = substring.Substring(i2, i3 - i2 - 2); // Minus string beginning and '"'
 						
-						if (isEncryptedandContains(line, path, strFind))
+						if (isEncryptedandContains(line, path, strFind, caseSensitive))
                         {
 							return true;
                         }
@@ -385,13 +400,13 @@ namespace findcnf
 		}
 
 		
-        static void processFile(FileInfo file, string searchpattern)
+        static void processFile(FileInfo file, string searchpattern, bool caseSensitive = false)
 		{
 			if (file is null || file.Length <= 0 || isDirectory(file.FullName)) return;
 			if (!File.Exists(file.FullName)) return;
 			numSearched++;
             RenderStatus();
-            if (fileContainsString(file.FullName, searchpattern)) {
+            if (fileContainsString(file.FullName, searchpattern, caseSensitive)) {
 				foundCount++;
 				PrintProgress(searchpattern, file.FullName);
 			}
@@ -406,7 +421,7 @@ namespace findcnf
 				} 
 				else
 				{*/
-				if (encriptedFileContainsString(file.FullName, searchpattern)) {
+				if (encriptedFileContainsString(file.FullName, searchpattern, caseSensitive)) {
 					foundCount++;
 					PrintProgress(searchpattern, file.FullName, true);
 				}
@@ -415,7 +430,7 @@ namespace findcnf
 		}
 
 		
-        internal static void EnumerateFiles(string sFullPath, string searchpattern)
+        internal static void EnumerateFiles(string sFullPath, string searchpattern, bool caseSensitive = false)
 		{
 			DirectoryInfo di = new DirectoryInfo(sFullPath);
 			
@@ -430,7 +445,7 @@ namespace findcnf
 						|| file.Extension.ToUpper().Equals(".BAT"))
 					{
 						// writeToLog("Processing file: " + file.FullName);
-						processFile(file, searchpattern);
+						processFile(file, searchpattern, caseSensitive);
 					}
 				}
 			}
@@ -449,7 +464,7 @@ namespace findcnf
                     if ((dir.Attributes & FileAttributes.ReparsePoint) != 0)
                         continue; // skip symlinks/junctions
 
-                    EnumerateFiles(dir.FullName, searchpattern);
+                    EnumerateFiles(dir.FullName, searchpattern, caseSensitive);
                 }
             }
 			catch (Exception ex)
@@ -458,61 +473,77 @@ namespace findcnf
 			}
 		}
 
-        
+
         static void printUsageAndExit()
         {
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine($"Find a string pattern in a configuration file.");
-            Console.WriteLine();
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.WriteLine($"Usage: ");
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.Write("\tfindcnf");
-            Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.Write(" -p ");
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.Write("path");
-            Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.Write(" -s ");
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.Write("searchpattern");
-            Console.WriteLine();
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.Write("\tfindcnf");
-            Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.Write(" --path ");
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.Write("path");
-            Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.Write(" --searchpattern ");
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.Write("searchpattern");
-            Console.WriteLine();
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.Write("\tfindcnf");
-            Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.Write(" -h");
-            Console.WriteLine();
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.Write("\tfindcnf");
-            Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.Write(" --help");
-            Console.WriteLine();
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine("Options:");
-            Console.WriteLine("\t-p | --path\t\tPath as from when to search.");
-            Console.WriteLine("\t-s | --searchpattern\tSearch pattern to  look for.");
-            Console.WriteLine();
-            Console.WriteLine("\t-h | --help\t\tShow this help message.");
+            CWriteLine(ConsoleColor.Cyan, "Find a string pattern in a configuration file.");
+            CWriteLine();
 
-            Console.ForegroundColor = ConsoleColor.DarkYellow;
-            Console.Write("Third ");
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.Write("3");
-            Console.ForegroundColor = ConsoleColor.DarkYellow;
-            Console.WriteLine("ye Software Inc. (\u00A9) 2026");	
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.Write("Version: {0}.{1}.{2}. ", versionMajor, versionMinor, versionRevision);
+            CWriteLine(ConsoleColor.White, "Usage: ");
+            CWrite(ConsoleColor.Green, "\tfindcnf");
+            CWrite(ConsoleColor.DarkGray, " -p ");
+            CWrite(ConsoleColor.White, "<path>");
+            CWrite(ConsoleColor.DarkGray, " -s ");
+            CWrite(ConsoleColor.White, "<searchpattern> [");
+            CWrite(ConsoleColor.DarkGray, "-c");
+            CWrite(ConsoleColor.White, "]");
+            CWriteLine();
+            CWriteLine();
+
+            CWriteLine(ConsoleColor.Cyan, "Options:");
+            CWrite(ConsoleColor.DarkGray, "\t-p");
+            CWrite(ConsoleColor.White, " | ");
+            CWrite(ConsoleColor.DarkGray, "--path");
+            CWrite(ConsoleColor.White, " <path>");
+            CWriteLine(ConsoleColor.Cyan, "\t\t\tPath as from when to search.");
+
+            CWrite(ConsoleColor.DarkGray, "\t-s");
+            CWrite(ConsoleColor.White, " | ");
+            CWrite(ConsoleColor.DarkGray, "--searchpattern");
+            CWrite(ConsoleColor.White, " <searchpattern>");
+            CWriteLine(ConsoleColor.Cyan, "\tSearch pattern to look for.");
+
+            CWrite(ConsoleColor.DarkGray, "\t-c");
+            CWrite(ConsoleColor.White, " | ");
+            CWrite(ConsoleColor.DarkGray, "--casesensitive");
+            CWriteLine(ConsoleColor.Cyan, "\t\t\tMake a case sensitive search.");
+            CWriteLine();
+            CWrite(ConsoleColor.DarkGray, "\t-h");
+            CWrite(ConsoleColor.White, " | ");
+            CWrite(ConsoleColor.DarkGray, "--help");
+            CWriteLine(ConsoleColor.Cyan, "\t\t\t\tShow this help message.");
+            CWriteLine();
+
+            CWrite(ConsoleColor.DarkYellow, "Third ");
+            CWrite(ConsoleColor.Yellow, "3");
+            CWriteLine(ConsoleColor.DarkYellow, "ye Software Inc. (\u00A9) 2026");
+
+            CWriteLine(ConsoleColor.White,
+                $"Version: {versionMajor}.{versionMinor}.{versionRevision}. ");
+        }
+
+
+        private static void CWrite(ConsoleColor color, string message = "")
+        {
+            Console.ForegroundColor = color;
+            if (message != "")
+                Console.Write(message);
+        }
+
+        
+        private static void CWriteLine(ConsoleColor color = ConsoleColor.White, string message = "")
+        {
+            if (message == "")
+            {
+                Console.WriteLine();
+                return;
+            }
+            else
+            {
+                Console.ForegroundColor = color;
+                message += Environment.NewLine;
+                Console.Write(message);
+            }
         }
 
 
@@ -583,6 +614,7 @@ namespace findcnf
         {
             string path = String.Empty;
             string searchpattern = String.Empty;
+            bool caseSensitive = false;
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -593,7 +625,7 @@ namespace findcnf
                         if (i + 1 < args.Length)
                             path = args[++i];
                         else
-                            PrintError("Fatal Error", "Missing value for -s | --server option.", "Please read usage.");
+                            PrintError("Fatal Error", "Missing value for -p | --path option.", "Please read usage.");
                         break;
 
                     case "-s":
@@ -601,18 +633,25 @@ namespace findcnf
                         if (i + 1 < args.Length)
                             searchpattern = args[++i];
                         else
-                            PrintError("Fatal Error", "Missing value for -d | --database option.", "Please read usage.");
+                            PrintError("Fatal Error", "Missing value for -s | --searchpattern option.", "Please read usage.");
+                        break;
+
+                    case "-c":
+                    case "--casesensitive":
+                        caseSensitive = true;
                         break;
 
                     case "-h":
                     case "--help":
                         printUsageAndExit();
+                        Environment.Exit(0);
                         break;
                 }
             }
             if (String.Empty == path || String.Empty == searchpattern)
             {
                 printUsageAndExit();
+                Environment.Exit(0);
             }
             else
             {
@@ -631,12 +670,13 @@ namespace findcnf
                     {
                         var watch = System.Diagnostics.Stopwatch.StartNew();
 
-                        EnumerateFiles(path, searchpattern);
+                        EnumerateFiles(path, searchpattern, caseSensitive);
 
                         StopSpinner();
 
-                        // PrintInfo(Environment.NewLine + "Found '" + searchpattern + "': ", foundCount.ToString() + " " + "times.");
-                        PrintInfo("Number of config files searched: ", numSearched.ToString());
+                        PrintInfo("Search pattern: ", $"'{searchpattern}'");
+                        PrintInfo("Total occurrences found: ", $"{foundCount} {(foundCount == 1 ? "time" : "times")}");
+                        PrintInfo("Number of files searched: ", numSearched.ToString());
                         watch.Stop();
                         var elapsedMs = watch.ElapsedMilliseconds;
                         printTime(elapsedMs);
